@@ -49,23 +49,26 @@ function Solution(data, y)
     end
 
     ll = 0.
-
-    for r = 1:data.k
-        for s = r:data.k
-            if (m[r,s] == 0) || (kappa[r]*kappa[s] == 0)
-               contribM = 0.
-            else
-                denM = kappa[r] * kappa[s]
-                contribM = m[r,s] * log(float(m[r,s])/denM)
-            end
-            ll -= contribM
-            if r != s
+    if is_assortative(m, kappa)
+        for r = 1:data.k
+            for s = r:data.k
+                if (m[r,s] == 0) || (kappa[r]*kappa[s] == 0)
+                contribM = 0.
+                else
+                    denM = kappa[r] * kappa[s]
+                    contribM = m[r,s] * log(float(m[r,s])/denM)
+                end
                 ll -= contribM
+                if r != s
+                    ll -= contribM
+                end
             end
         end
+        ll *= 0.5
+        ll -= C
+    else
+        ll = -solveSBM(y, data)
     end
-    ll *= 0.5
-    ll -= C
 
     return Solution(ll, data, y, z, m, kappa)
 end
@@ -149,7 +152,7 @@ function evalrelocate(sol, i, t)
     sbm_cost *= 0.5
     sbm_cost -= C
 
-    if sbm_cost < (sol.ll + Tol) && is_strongly_assortative(m_, kappa_)
+    if sbm_cost < (sol.ll + Tol) && is_assortative(m_, kappa_)
         # update likelihood
         sol.ll = sbm_cost
 
@@ -163,7 +166,7 @@ function evalrelocate(sol, i, t)
         sol.kappa = copy(kappa_)
     end
 
-    if sbm_cost < (sol.ll + Tol) && !is_strongly_assortative(m_, kappa_)
+    if sbm_cost < (sol.ll + Tol) && !is_assortative(m_, kappa_)
         y_ = copy(sol.y)
         y_[i] = t
         cost_constrained = -solveSBM(y_, sol.data)
@@ -237,6 +240,10 @@ function get_omega(m, kappa)
     k = length(kappa)
     w = [ (m[r, s])/(kappa[r] * kappa[s]) for r in 1:k, s in 1:k ]
     return w
+end
+
+function is_assortative(m, kappa)
+    return is_strongly_assortative(m, kappa)
 end
 
 function is_strongly_assortative(m, kappa)

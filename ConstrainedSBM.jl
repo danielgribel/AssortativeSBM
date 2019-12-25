@@ -4,6 +4,7 @@ using Random
 using LinearAlgebra
 using LightGraphs
 using SimpleWeightedGraphs
+using Clustering
 
 struct Data
     n::Int
@@ -325,3 +326,7 @@ localsearch(sol)
 println(sol.ll)
 
 println(sol.y)
+
+v_measure = vmeasure(sol.y, label)
+
+println(v_measure)

@@ -79,7 +79,7 @@ function solveSBM(y, z, data)
     w = Variable(k, k) # SBM parameters
 
     obj = .5*sum(
-        sum(( data.A[i,j]*log(w[r,s]) - w[r,s]*Q[i,j] )*z[i,r]*z[j,s] for i in 1:n, j in 1:n )
+        sum( ( data.A[i,j]*log(w[r,s]) - w[r,s]*Q[i,j] )*z[i,r]*z[j,s] for i in 1:n, j in 1:n )
         for r in 1:k, s in 1:k 
     )
 
@@ -93,12 +93,12 @@ function solveSBM(y, z, data)
         end
     end
 
-    solve!(problem, SCSSolver())
+    solve!(problem, SCSSolver(verbose=false))
     return problem.optval
 end
 
 function evalrelocate(sol, i, t)
-    # source center
+    # source cluster
     src = sol.y[i]
 
     m_ = copy(sol.m)
@@ -106,7 +106,7 @@ function evalrelocate(sol, i, t)
     for v in neighbors(sol.data.G, i)
         m_[sol.y[v], src] -= sol.data.G.weights[i, v]
         m_[src, sol.y[v]] -= sol.data.G.weights[i, v]
-        if(i == v)
+        if i == v
             m_[t, t] += 2.0*sol.data.G.weights[i, i]
         else
             m_[t, sol.y[v]] += sol.data.G.weights[i, v]
@@ -258,6 +258,8 @@ end
 
 INPUT_FILE = "data/Sample.link"
 
+LABEL_FILE = "data/Sample.label"
+
 # tolerance epsilon
 Tol = 1e-4
 
@@ -277,6 +279,8 @@ nb_pairs = countlines(INPUT_FILE)
 
 G = SimpleWeightedGraph(nb_pairs)
 
+label = zeros(Int, n)
+
 open(INPUT_FILE) do file
     for ln in eachline(file)
         lnsplit = split(ln, " ")
@@ -286,6 +290,14 @@ open(INPUT_FILE) do file
         A[a, b] = e
         A[b, a] = e
         add_edge!(G, a, b, e)
+    end
+end
+
+open(LABEL_FILE) do file
+    ct = 1
+    for ln in eachline(file)
+        label[ct] = parse(Int8, ln)
+        ct += 1
     end
 end
 

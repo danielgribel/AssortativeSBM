@@ -64,35 +64,22 @@ function Solution(data, y)
                 end
             end
         end
-        ll *= 0.5
-        ll -= C
+        ll = 0.5*ll - C
     else
-        ll = -solveSBM(y, data)
+        ll = -solveSBM(y, z, data)
     end
 
     return Solution(ll, data, y, z, m, kappa)
 end
 
-function solveSBM(y, data)
+function solveSBM(y, z, data)
     n = data.n
     k = data.k
-
-    # number of edges
-    m = .5 * sum(data.A)
     
-    kmatrix = ( sum(data.A[i,:] for i in 1:n) * transpose(sum(data.A[j,:] for j in 1:n)) )/(2*m)
-
-    z = Array{Int, 2}(undef, n, k)
-    fill!(z, 0)
-
-    for i in 1:n
-        z[i, y[i]] = 1
-    end
-
-    w = Variable(k, k)
+    w = Variable(k, k) # SBM parameters
 
     obj = .5*sum(
-        sum(( data.A[i,j]*log(w[r,s]) - w[r,s]*kmatrix[i,j] )*z[i,r]*z[j,s] for i in 1:n, j in 1:n )
+        sum(( data.A[i,j]*log(w[r,s]) - w[r,s]*Q[i,j] )*z[i,r]*z[j,s] for i in 1:n, j in 1:n )
         for r in 1:k, s in 1:k 
     )
 
@@ -149,8 +136,7 @@ function evalrelocate(sol, i, t)
         end
     end
     
-    sbm_cost *= 0.5
-    sbm_cost -= C
+    sbm_cost = 0.5*sbm_cost - C
 
     if sbm_cost < (sol.ll + Tol) && is_assortative(m_, kappa_)
         # update likelihood
@@ -168,8 +154,11 @@ function evalrelocate(sol, i, t)
 
     if sbm_cost < (sol.ll + Tol) && !is_assortative(m_, kappa_)
         y_ = copy(sol.y)
+        z_ = copy(sol.z)
         y_[i] = t
-        cost_constrained = -solveSBM(y_, sol.data)
+        z_[i, src] = 0
+        z_[i, t] = 1
+        cost_constrained = -solveSBM(y_, z_, sol.data)
         if cost_constrained < (sol.ll + Tol)
             # update likelihood
             sol.ll = cost_constrained
@@ -231,8 +220,7 @@ function likelihood(sol)
             end
         end
     end
-    ll *= 0.5
-    ll -= C
+    ll = 0.5*ll - C
     return ll
 end
 
@@ -304,13 +292,13 @@ end
 data = Data(n, d, k, A, G)
 
 # total number of edges
-m = .5*sum(A)
+M = .5*sum(A)
 
 # constant
-C = m*(log(2*m) - 1)
+C = M*(log(2*M) - 1)
 
-# (k_i k_j)/2m matrix
-Q = ( sum(A[i,:] for i in 1:n) * transpose(sum(A[j,:] for j in 1:n)) )/(2*m)
+# (k_i k_j)/2M matrix
+Q = ( sum(A[i,:] for i in 1:n) * transpose(sum(A[j,:] for j in 1:n)) )/(2*M)
 
 y = zeros(Int, data.n)
 

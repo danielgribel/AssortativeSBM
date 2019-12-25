@@ -1,7 +1,9 @@
 using Convex
 using SCS
 using Random
-using LightGraphs, SimpleWeightedGraphs
+using LinearAlgebra
+using LightGraphs
+using SimpleWeightedGraphs
 
 struct Data
     n::Int
@@ -68,6 +70,43 @@ function Solution(data, y)
     return Solution(ll, data, y, z, m, kappa)
 end
 
+function solveSBM(y, data)
+    n = data.n
+    k = data.k
+
+    # number of edges
+    m = .5 * sum(data.A)
+    
+    kmatrix = ( sum(data.A[i,:] for i in 1:n) * transpose(sum(data.A[j,:] for j in 1:n)) )/(2*m)
+
+    z = Array{Int, 2}(undef, n, k)
+    fill!(z, 0)
+
+    for i in 1:n
+        z[i, y[i]] = 1
+    end
+
+    w = Variable(k, k)
+
+    obj = .5*sum(
+        sum(( data.A[i,j]*log(w[r,s]) - w[r,s]*kmatrix[i,j] )*z[i,r]*z[j,s] for i in 1:n, j in 1:n )
+        for r in 1:k, s in 1:k 
+    )
+
+    problem = maximize(obj)
+
+    a = Array((1:k))
+
+    for r in a
+        for s in a[a .!= r]
+            problem.constraints += [w[r,r] > w[r,s]]
+        end
+    end
+
+    solve!(problem, SCSSolver())
+    return problem.optval
+end
+
 function evalrelocate(sol, i, t)
     # source center
     src = sol.y[i]
@@ -110,7 +149,7 @@ function evalrelocate(sol, i, t)
     sbm_cost *= 0.5
     sbm_cost -= C
 
-    if sbm_cost < (sol.ll + Tol)
+    if sbm_cost < (sol.ll + Tol) && is_strongly_assortative(m_, kappa_)
         # update likelihood
         sol.ll = sbm_cost
 
@@ -122,6 +161,25 @@ function evalrelocate(sol, i, t)
         sol.z[i, t] = 1
         sol.y[i] = t
         sol.kappa = copy(kappa_)
+    end
+
+    if sbm_cost < (sol.ll + Tol) && !is_strongly_assortative(m_, kappa_)
+        y_ = copy(sol.y)
+        y_[i] = t
+        cost_constrained = -solveSBM(y_, sol.data)
+        if cost_constrained < (sol.ll + Tol)
+            # update likelihood
+            sol.ll = cost_constrained
+
+            # update parameters
+            sol.m = copy(m_)
+
+            # update assignments
+            sol.z[i, src] = 0
+            sol.z[i, t] = 1
+            sol.y[i] = t
+            sol.kappa = copy(kappa_)
+        end
     end
 end
 
@@ -156,7 +214,6 @@ end
 
 function likelihood(sol)
     ll = 0.
-
     for r = 1:sol.data.k
         for s = r:sol.data.k
             if (sol.m[r,s] == 0) || (sol.kappa[r]*sol.kappa[s] == 0)
@@ -174,6 +231,32 @@ function likelihood(sol)
     ll *= 0.5
     ll -= C
     return ll
+end
+
+function get_omega(m, kappa)
+    k = length(kappa)
+    w = [ (m[r, s])/(kappa[r] * kappa[s]) for r in 1:k, s in 1:k ]
+    return w
+end
+
+function is_strongly_assortative(m, kappa)
+    w = get_omega(m, kappa)    
+    if minimum(diag(w)) > maximum(w - Diagonal(w))
+        return true
+    end
+    return false
+end
+
+function is_weakly_assortative(m, kappa)
+    k = length(kappa)
+    w = get_omega(m, kappa)
+    a = Array((1:k))
+    for r = 1:k
+        if w[r, r] <= w[r, a[a .!= r]]
+            return false
+        end
+    end
+    return true
 end
 
 
@@ -224,7 +307,7 @@ Q = ( sum(A[i,:] for i in 1:n) * transpose(sum(A[j,:] for j in 1:n)) )/(2*m)
 
 y = zeros(Int, data.n)
 
-y = [1, 2, 2, 1, 1, 1, 2, 1]
+y = [1, 2, 1, 1, 1, 2, 2, 2]
 
 sol = Solution(data, y)
 

@@ -5,6 +5,7 @@ using LinearAlgebra
 using LightGraphs
 using SimpleWeightedGraphs
 using Discreet
+using StatsBase
 
 struct Data
     n::Int
@@ -12,6 +13,7 @@ struct Data
     k::Int
     A::Array{Int}
     G::SimpleWeightedGraph
+    degree::Array{Int}
 end
 
 mutable struct Solution
@@ -24,18 +26,19 @@ mutable struct Solution
 end
 
 function Data(n, d, k, A, G)
-    return Data(n, d, k, A, G)
+    degree = [ sum(A[i,:]) for i=1:n ]
+    return Data(n, d, k, A, G, degree)
 end
 
 function compute_m(data, y)
     G = data.G
+    A = data.A
     k = data.k
     m = zeros(Int, k, k)
-    for e in collect(edges(G))
-        a = e.src
-        b = e.dst
-        m[ y[a], y[b] ] += e.weight
-        m[ y[b], y[a] ] += e.weight
+    for i=1:data.n
+        for j=1:data.n
+            m[ y[i], y[j] ] += A[i,j]
+        end
     end
     return m
 end
@@ -45,33 +48,19 @@ function compute_kappa(data, y)
     k = data.k
     kappa = zeros(Int, k)
     for i = 1:data.n
-        kappa[ y[i] ] += sum(G.weights[i,:])
+        kappa[ y[i] ] += data.degree[i]
     end
     return kappa
 end
 
 function Solution(data, y)
     z = zeros(Int, data.n, data.k)
-    # m = zeros(Int, data.k, data.k)
-    # kappa = zeros(Int, data.k)
-    
     m = compute_m(data, y)
     kappa = compute_kappa(data, y)
 
     for i = 1:data.n
         z[i, y[i]] = 1
     end
-
-    # for e in collect(edges(G))
-    #     a = e.src
-    #     b = e.dst
-    #     m[ y[a], y[b] ] += e.weight
-    #     m[ y[b], y[a] ] += e.weight
-    # end
-
-    # for i = 1:data.n
-    #     kappa[ y[i] ] += sum(data.G.weights[i,:])
-    # end
 
     ll = 0.
     if is_assortative(m, kappa)
@@ -82,7 +71,7 @@ function Solution(data, y)
                 contribM = 0.
                 else
                     denM = kappa[r] * kappa[s]
-                    contribM = m[r,s] * log(float(m[r,s])/denM)
+                    contribM = m[r,s] * log(m[r,s]/denM)
                 end
                 ll -= contribM
                 if r != s
@@ -93,76 +82,63 @@ function Solution(data, y)
         ll = 0.5*ll - C
     else
         println("***************** Assortative = NO")
-        ll = -solveSBM(y, z, data)
+        ll = -solveSBM(m, kappa, data)
     end
     return Solution(ll, data, y, z, m, kappa)
 end
 
-function solveSBM(y, z, data)
+function solveSBM(m_, kappa_, data)
     n = data.n
     k = data.k
     A = data.A
-
-    w = Variable(k, k) # SBM parameters
+    m = m_
+    kap = zeros(Float64, k, k)
     
-    # w.value = rand(k, k)
+    for r=1:k
+        for s=r:k
+            if m_[r,s] == 0 || kappa_[r] == 0
+                return -Inf
+            end
+        end
+    end
 
-    # println("-- W declared.")
+    for r=1:k
+        for s=r:k
+            kap[r,s] = (kappa_[r]*kappa_[s])/(2*M)
+            kap[s,r] = kap[r,s]
+        end
+    end
 
-    # f = 0.5*sum(
-    #     sum( ( A[i,j]*log(w[r,s]) - Q[i,j]*w[r,s] )*z[i,r]*z[j,s] for i=1:n, j=1:n )
-    #     for r=1:k, s=1:k 
-    # )
+    # SBM parameters
+    w = Variable(k, k)
 
-    f  = 0.5*sum( ( A[i,i]*log(w[ y[i], y[i] ]) - Q[i,i]*w[ y[i], y[i] ] ) for i=1:n )
-    f += sum( ( A[i,j]*log(w[ y[i], y[j] ]) - Q[i,j]*w[ y[i], y[j] ] ) for i=1:n for j=(i+1):n )
-
-    # println("-- Model built.")
+    # Objective
+    f  = 0.5*sum( ( m[r,r]*log(w[r,r]) - w[r,r]*kap[r,r] ) for r=1:k )
+    f += sum( ( m[r,s]*log(w[r,s]) - w[r,s]*kap[r,s] ) for r=1:k for s=(r+1):k )
 
     problem = maximize(f)
 
-    # println("-- Problem declared.")
+    # Model constraints
+    for r = 1:k
+        for s = r:k
+            problem.constraints += [ w[r,s] >= Tol ]
+            if r != s
+                problem.constraints += [ w[r,s] == w[s,r] ]
+            end
+        end
+    end
 
-    # a = Array((1:k))
-    # for r in a
-    #     for s in a[a .!= r]
-    #         problem.constraints += [w[r,r] > w[r,s]]
-    #     end
-    # end
-    
-    problem.constraints += w[1,1] >= (w[1,2] + Tol)
-    problem.constraints += w[1,1] >= (w[2,1] + Tol)
-    problem.constraints += w[2,2] >= (w[1,2] + Tol)
-    problem.constraints += w[2,2] >= (w[2,1] + Tol)
-    
-    problem.constraints += w[1,1] >= Tol
-    problem.constraints += w[1,2] >= Tol
-    problem.constraints += w[2,1] >= Tol
-    problem.constraints += w[2,2] >= Tol
-
-    problem.constraints += w[1,2] == w[2,1]
-
-    # problem.constraints += w[1,2] <= 0.5
-    # problem.constraints += w[2,1] <= 0.5
-
-    # println("-- Constraints added.")
+    for q = 1:k
+        for r = 1:k
+            for s = (r+1):k
+                problem.constraints += [ w[q,q] >= (w[r,s] + Tol) ]
+            end
+        end
+    end
 
     solve!(problem, SCSSolver(verbose = false))
-
-    # solve!(problem, SCSSolver(
-    #     verbose = false,
-    #     # normalize = 0,    # boolean, heuristic data rescaling: 1
-    #     # scale = 1.0,      # if normalized, rescales by this factor: 5
-    #     #rho_x = 1e-3,      # x equality constraint scaling: 1e-3
-    #     max_iters = 5,      # maximum iterations to take: 2500
-    #     eps = 1e-4,         # convergence tolerance: 1e-3
-    #     # alpha = 1.8,      # relaxation parameter: 1.8
-    #     # cg_rate = 1
-    # ))
-    
-    # println("-- Problem solved.")
-    println("Optval = ", problem.optval)
-    println("Omega = ", w.value)
+    # println("Optval = ", problem.optval)
+    # println("Omega = ", w.value)
     return problem.optval
 end
 
@@ -186,8 +162,8 @@ function evalrelocate(sol, i, t)
     sbm_cost = 0.
 
     kappa_ = copy(sol.kappa)
-    kappa_[ src ] -= sum(sol.data.G.weights[i,:])
-    kappa_[ t ] += sum(sol.data.G.weights[i,:])
+    kappa_[ src ] -= sol.data.degree[i]
+    kappa_[ t ] += sol.data.degree[i]
 
     for r = 1:sol.data.k
         for s = r:sol.data.k
@@ -195,7 +171,7 @@ function evalrelocate(sol, i, t)
             contribM = 0.
             else
                 denM = kappa_[r] * kappa_[s]
-                contribM = m_[r,s] * log(float(m_[r,s])/denM)
+                contribM = m_[r,s] * log(m_[r,s]/denM)
             end
             sbm_cost -= contribM
             if r != s
@@ -204,7 +180,7 @@ function evalrelocate(sol, i, t)
         end
     end
     sbm_cost = 0.5*sbm_cost - C
-        
+    
     if sbm_cost < (sol.ll + Tol)
         if is_assortative(m_, kappa_)
             # update likelihood
@@ -223,18 +199,18 @@ function evalrelocate(sol, i, t)
             y_[i] = t
             z_[i, src] = 0
             z_[i, t] = 1
-            sbm_cost = -solveSBM(y_, z_, sol.data)
+            sbm_cost = -solveSBM(m_, kappa_, sol.data)
             if sbm_cost < (sol.ll + Tol)
                 # update likelihood
                 sol.ll = sbm_cost
                 # update parameters
                 sol.m = copy(m_)
                 # update assignments
+                sol.y[i] = t
                 sol.z[i, src] = 0
                 sol.z[i, t] = 1
-                sol.y[i] = t
                 sol.kappa = copy(kappa_)
-                # println("--relocate ", i, " ", t)
+                # println("------------Relocate after SOLVE_SBM ", i, " ", t)
             end
         end
     end
@@ -269,7 +245,7 @@ function localsearch(sol)
         end
         counter += 1
     end
-    println(counter)
+    # println(counter)
 end
 
 function likelihood(sol)
@@ -280,7 +256,7 @@ function likelihood(sol)
                contribM = 0.
             else
                 denM = sol.kappa[r] * sol.kappa[s]
-                contribM = sol.m[r,s] * log(float(sol.m[r,s])/denM)
+                contribM = sol.m[r,s] * log(sol.m[r,s]/denM)
             end
             ll -= contribM
             if r != s
@@ -303,7 +279,7 @@ function is_assortative(m, kappa)
 end
 
 function is_strongly_assortative(m, kappa)
-    w = get_omega(m, kappa)    
+    w = get_omega(m, kappa)
     if minimum(diag(w)) > maximum(w - Diagonal(w))
         return true
     end
@@ -313,10 +289,11 @@ end
 function is_weakly_assortative(m, kappa)
     k = length(kappa)
     w = get_omega(m, kappa)
-    a = Array((1:k))
     for r = 1:k
-        if w[r, r] <= w[r, a[a .!= r]]
-            return false
+        for s = 1:k
+            if r != s && w[r,r] <= w[r,s]
+                return false
+            end
         end
     end
     return true
@@ -327,49 +304,51 @@ function run()
     k = data.k
     A = data.A
     max_it = 10
-    lls = zeros(Float64, max_it)
+    best_nmi = 0.0
+    best_ll = Inf
 
     for i=1:max_it
         # create initial solution
-        y = rand([1,k], n)
+        y = sample(1:k, n)
         m = compute_m(data, y)
         kappa = compute_kappa(data, y)
-        while !is_assortative(m, kappa)
-            y = rand([1,k], n)
-            m = compute_m(data, y)
-            kappa = compute_kappa(data, y)
-        end
+        # while !is_assortative(m, kappa)
+        #     y = sample(1:k, n)
+        #     m = compute_m(data, y)
+        #     kappa = compute_kappa(data, y)
+        # end
         sol = Solution(data, y)
         ll_initial = sol.ll
+        println(ll_initial)
         localsearch(sol)
-        println("Likelihood (", i, "): ", ll_initial, " >> ", sol.ll)
         nmi = mutual_information(sol.y, label; normalize = true)
-        println("NMI: ", nmi)
         w = get_omega(sol.m, sol.kappa)
+        println("Likelihood (", i, "): ", ll_initial, " >> ", sol.ll)
+        println("NMI: ", nmi)
         println("W: ", w)
-        lls[i] = sol.ll
+        if sol.ll < best_ll
+            best_ll = sol.ll
+            best_nmi = nmi
+        end
     end
-    println("minimum: ", minimum(lls))
+    println("minimum: ", best_ll, " ", best_nmi)
 end
 
 
 ### MAIN
 
-INPUT_FILE = "data/Data-2-8-100-1000.link"
+INPUT_FILE = "data/Data-4-8-200-1001.link"
 
-LABEL_FILE = "data/Data-2-8-100-1000.label"
+LABEL_FILE = "data/Data-4-8-200-1001.label"
 
 # tolerance epsilon
 Tol = 1e-4
 
 # number of samples
-n = 100
+n = 200
 
 # data dimensionality
 d = 8
-
-# number of clusters
-k = 2
 
 # graph (adjacency matrix)
 A = zeros(Int, n, n)
@@ -400,19 +379,18 @@ open(LABEL_FILE) do file
     end
 end
 
+# number of clusters
+k = length(unique(collect(label)))
+
 data = Data(n, d, k, A, G)
 
 # total number of edges
 M = .5*sum(A)
 
-# constant
+# SBM constant
 C = M*(log(2*M) - 1)
 
-# (k_i k_j)/2M matrix
-Q = ( sum(A[i,:] for i in 1:n) * transpose(sum(A[j,:] for j in 1:n)) )/(2*M)
-
-lowerbound = 0.5*sum(Q)
+# (k_i k_j)/2M constant matrix
+Q = (data.degree * transpose(data.degree))/(2*M)
 
 run()
-
-# y = [1,2,2,1,2,1,1,1,2,2,1,2,2,1,1,1,2,2,2,1,2,1,1,1,1,2,1,1,2,2,2,2,1,1,2,2,1,2,2,1,1,2,2,1,2,1,1,1,2,1,2,1,2,1,2,2,2,1,2,1,2,2,1,1,2,2,2,2,2,1,2,1,2,2,2,2,2,2,1,1,1,1,2,1,2,1,1,1,2,2,2,2,2,2,1,2,2,2,1,1,2,2,2,2,1,1,1,2,1,2,1,2,2,1,1,1,1,1,1,2,1,1,2,2,1,1,1,2,2,1,1,1,2,1,2,2,2,1,2,2,2,2,1,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1,2,2,1,2,2,2,1,1,2,2,2,2,2,2,2,1,2,2,1,1,2,2,1,1,2,2,2,1,2,2,1,1,1,2,2,1,1,1]

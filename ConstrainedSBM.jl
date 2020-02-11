@@ -1,5 +1,5 @@
 using Convex
-using SCS
+# using SCS
 using ECOS
 using Random
 using LinearAlgebra
@@ -7,6 +7,10 @@ using LightGraphs
 using SimpleWeightedGraphs
 using Discreet
 using StatsBase
+using Clustering
+using CSV
+
+import Base.iterate,Base.length
 
 include("Data.jl")
 
@@ -31,23 +35,24 @@ function Solution(data, y)
     # q = [ sum(z[:,r]) for r = 1:data.k ]
 
     if is_assortative(m, kappa)
-        println("***************** Assortative = YES")
         ll = ll_DCSBM(data, m, kappa)
     else
-        println("***************** Assortative = NO")
         ll = solve_DCSBM(data, m, kappa)
     end
     return Solution(ll, data, y, z, m, kappa)
 end
 
 function compute_m(data, y)
-    A = data.A
+    G = data.G
     m = zeros(Int, data.k, data.k)
     for i=1:data.n
-        m[ y[i], y[i] ] += A[i,i]
+        # m[ y[i], y[i] ] += A[i,i]
+        m[ y[i], y[i] ] += Int(G.weights[i, i])
         for j=(i+1):data.n
-            m[ y[i], y[j] ] += A[i,j]
-            m[ y[j], y[i] ] += A[j,i]
+            # m[ y[i], y[j] ] += A[i,j]
+            # m[ y[j], y[i] ] += A[j,i]
+            m[ y[i], y[j] ] += Int(G.weights[i, j])
+            m[ y[j], y[i] ] += Int(G.weights[j, i])
         end
     end
     return m
@@ -101,7 +106,6 @@ end
 function solve_SBM(data, m, q)
     n = data.n
     k = data.k
-    A = data.A
     
     # SBM parameters
     w = Variable(k, k)
@@ -276,6 +280,7 @@ end
 function is_assortative(m, kappa)
     if CONSTRAINED
         return is_strongly_assortative(m, kappa)
+        # return is_relaxed_assortative(m, kappa)
     end
     return true
 end
@@ -301,20 +306,35 @@ function is_weakly_assortative(m, kappa)
     return true
 end
 
+function is_relaxed_assortative(m, kappa)
+    k = length(kappa)
+    w = get_omega_DCSBM(m, kappa)
+    count = 0
+    for r = 1:k
+        arr = findall(w[r, :] .== maximum(w[r, :]))
+        if length(arr) == 1 && r == arr[1]
+            count += 1
+        end
+    end
+    if (count/k) >= PERC
+        return true
+    end
+    return false
+end
+
 function localsearch(sol)
     n = sol.data.n
     k = sol.data.k
-    tw = MersenneTwister(1234)
     prev_ll = Inf
     curr_ll = sol.ll
     it_changed = true
     
     while ((prev_ll - curr_ll) > Tol) && it_changed
-        rdm_samples = randperm(tw, n)
+        rdm_samples = randperm(Mt, n)
         it_changed = false
         for i in rdm_samples
             prev = sol.y[i]
-            rdm_clusters = randperm(tw, k)
+            rdm_clusters = randperm(Mt, k)
             for c in rdm_clusters
                 if (sol.y[i] != c) && (prev != c)
                     eval_relocate(sol, i, c)
@@ -329,79 +349,120 @@ function localsearch(sol)
     end
 end
 
-function run(max_it)
-    best_nmi = 0.0
-    best_ll = Inf
-    best_solution = nothing
+function initial_assignment(data)
+    rdm_order = randperm(Mt, data.n)
+    y = zeros(Int, data.n)
+    for i = 1:data.n
+        y[ rdm_order[i] ] = ceil(data.k*i/data.n)
+    end
+    return y
+end
 
-    ct_weakly = 0
-    ct_strongly = 0
+function run(max_it)
+    # best_nmi = 0.0
+    # best_crand = -1.0
+    # best_ll = Inf
+    # best_solution = nothing
 
     for i=1:max_it
         # create initial solution
-        y = sample(1:data.k, data.n)
+        y = initial_assignment(data)
         sol = Solution(data, y)
         ll_initial = sol.ll
+        t1 = time_ns()
         localsearch(sol)
+        elapsed_time = (time_ns() - t1)/1.0e9
+
         nmi = mutual_information(sol.y, label; normalize = true)
-        println("Likelihood (", i, "): ", ll_initial, " >> ", sol.ll)
-        println("NMI: ", nmi)
-        
+        crand = randindex(sol.y, label)[1]
         w = get_omega_DCSBM(sol.m, sol.kappa)
         omega_ii = diag(w)
         omega_ij = w - Diagonal(w)
-        [ println("w(", c, "): ", omega_ii[c], ", ", maximum(omega_ij[c,:])) for c = 1:k ]
         
-        if sol.ll < best_ll
-            best_ll = sol.ll
-            best_nmi = nmi
-            best_solution = sol
+        # if sol.ll < best_ll
+        #     best_ll = sol.ll
+        #     best_nmi = nmi
+        #     best_crand = crand
+        #     best_solution = sol
+        # end
+
+        count_csbm = 0
+        for r = 1:data.k
+            arr_csbm = findall(w[r, :] .== maximum(w[r, :]))
+            arr_ground = findall(w_ground[r, :] .== maximum(w_ground[r, :]))
+            if length(arr_csbm) == 1 && r == arr_csbm[1]
+                count_csbm += 1
+            end
         end
 
-        if is_weakly_assortative(sol.m, sol.kappa)
-            ct_weakly = ct_weakly + 1
+        line = INSTANCE * " "
+        line *= string(SEED) * " "
+        line *= string(data.k) * " "
+        line *= string(sol.ll) * " "
+        line *= string(nmi) * " "
+        line *= string(count_csbm/data.k) * " "
+        line *= string(elapsed_time) * " "
+        for r = 1:data.k
+            for s = 1:data.k
+                line *= string(w[r,s]) * " "
+            end
         end
-        if is_strongly_assortative(sol.m, sol.kappa)
-            ct_strongly = ct_strongly + 1
-        end
-
+        line *= "\n"
+        write_output(line)
     end
-
-    best_w = get_omega_DCSBM(best_solution.m, best_solution.kappa)
-    omega_ii = diag(best_w)
-    omega_ij = best_w - Diagonal(best_w)
-    yB = []
-    for i=1:data.n
-        if data.degree[i] != 0
-            push!(yB, best_solution.y[i])
-        end
-    end
-    nmiB = mutual_information(yB, labelB; normalize = true)
-
-    println("----------- Best solution:")
-    # [ println("w(", i, "): ", omega_ii[i], ",", maximum(omega_ij[i,:])) for i = 1:data.k ]
-    [ println("w(", i, "): ", best_w[i,:]) for i = 1:data.k ]
-    println("Size = ", [ sum(best_solution.z[:,r]) for r = 1:data.k ])
-    println("Likelihood = ", best_ll)
-    println("NMI = ", best_nmi, " ", nmiB)
-    println("Assignment = ", best_solution.y)
-    println("% assortative solutions = ", ct_weakly/max_it, " ", ct_strongly/max_it)
 end
 
+function write_output(line)
+    io = open(OUTPUT_FILE, "a")
+    write(io, line)
+    close(io)
+end
+
+struct Combinations{T}
+    itr::Vector{T}
+    count::Int64
+    itrsize::Int64
+    function Combinations(itr::Vector{T},count::Int) where T
+        new{T}(itr,Int64(count),length(itr))
+    end
+end
+
+function iterate(c::Combinations,state::Int64=0)
+    if state>=length(c)
+        return nothing
+    end
+    indices=digits(state,base=c.itrsize,pad=c.count)
+    [c.itr[i] for i in (indices .+1)],state+1
+end
+
+function length(c::Combinations)
+    length(c.itr) ^ c.count
+end
 
 ###### MAIN
 
-CONSTRAINED = true
+INSTANCE = ARGS[1]
 
-INSTANCE = "W-3-8-200-1001"
+SEED = parse(Int64, ARGS[2])
+
+MAX_IT = parse(Int64, ARGS[3])
+
+Mt = MersenneTwister(SEED)
+
+CONSTRAINED = false
+
+PERC = .5
 
 EDGES_FILE = "data/" * INSTANCE * ".link"
 LABEL_FILE = "data/" * INSTANCE * ".label"
 
+OUTPUT_FILE = "out/" * INSTANCE * "-" * string(SEED) * ".txt"
+
+io = open(OUTPUT_FILE, "w")
+close(io)
+
 # tolerance epsilon
 Tol = 1e-4
-
-nb_pairs = countlines(EDGES_FILE)
 
 label = Int[]
 
@@ -417,51 +478,49 @@ n = length(label)
 # number of clusters
 k = length(unique(collect(label)))
 
-# graph (adjacency matrix)
-A = zeros(Int, n, n)
-
 G = SimpleWeightedGraph(n)
 
-open(EDGES_FILE) do file
-    for ln in eachline(file)
-        lnsplit = split(ln, " ")
-        a = parse(Int, lnsplit[1])
-        b = parse(Int, lnsplit[2])
-        e = parse(Int, lnsplit[3])
-        A[a, b] = e
-        A[b, a] = e
-        add_edge!(G, a, b, e)
+# load dataset
+df_edges = CSV.read(EDGES_FILE; header = false)
+
+# matrix of samples attributes
+E = convert(Matrix, df_edges)
+
+global M = 0
+for j = 1:size(E)[1]
+    global M
+    M += E[j, 3]
+    if E[j, 1] != E[j, 2]
+        M += E[j, 3]
     end
+    add_edge!(G, E[j, 1], E[j, 2], E[j, 3])
 end
 
-data = Data(n, 8, k, A, G)
-
 # total number of edges
-M = .5*sum(A)
+M = .5*M
+
+data = Data(n, 2, k, G)
 
 # SBM constant
 C = M*(log(2*M) - 1)
 
 # (k_i k_j)/2M constant matrix for the DC-SBM
-Q = (data.degree * transpose(data.degree))/(2*M)
+# Q = (data.degree * transpose(data.degree))/(2*M)
 
-labelB = []
-for i=1:n
-    if data.degree[i] != 0
-        push!(labelB, label[i])
-    end
-end
+ground = Solution(data, copy(label))
+w_ground = get_omega_DCSBM(ground.m, ground.kappa)
 
-run(500)
+run(MAX_IT)
 
-ground_truth = Solution(data, copy(label))
+# perm = collect(Combinations([1,2], n))
 
-omega = get_omega_DCSBM(ground_truth.m, ground_truth.kappa)
-omega_ii = diag(omega)
-omega_ij = omega - Diagonal(omega)
+# for x in perm
+#     sol = Solution(data, x)
+#     ll = ll_DCSBM(data, sol.m, sol.kappa)
+#     println(x, ll)
+# end
 
-for i=1:k
-    println(omega_ii[i], ", ", maximum(omega_ij[i,:]))
-end
-
-println("ll = ", ll_DCSBM(data, ground_truth.m, ground_truth.kappa))
+# ground_truth = Solution(data, copy(label))
+# omega = get_omega_DCSBM(ground_truth.m, ground_truth.kappa)
+# [ println("w(", i, "): ", omega[i,:]) for i = 1:data.k ]
+# println("ll = ", ll_DCSBM(data, ground_truth.m, ground_truth.kappa))

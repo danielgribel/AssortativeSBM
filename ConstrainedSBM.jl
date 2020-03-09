@@ -361,8 +361,8 @@ end
 function run(max_it)
     # best_nmi = 0.0
     # best_crand = -1.0
-    # best_ll = Inf
-    # best_solution = nothing
+    best_ll = Inf
+    best_solution = nothing
 
     for i=1:max_it
         # create initial solution
@@ -378,13 +378,13 @@ function run(max_it)
         w = get_omega_DCSBM(sol.m, sol.kappa)
         omega_ii = diag(w)
         omega_ij = w - Diagonal(w)
-        
-        # if sol.ll < best_ll
-        #     best_ll = sol.ll
-        #     best_nmi = nmi
-        #     best_crand = crand
-        #     best_solution = sol
-        # end
+
+        if sol.ll < best_ll
+            best_solution = sol
+            best_ll = sol.ll
+            # best_nmi = nmi
+            # best_crand = crand
+        end
 
         count_csbm = 0
         for r = 1:data.k
@@ -410,6 +410,9 @@ function run(max_it)
         line *= "\n"
         write_output(line)
     end
+    # w = get_omega_DCSBM(best_solution.m, best_solution.kappa)
+    # println(best_solution.ll, " ", best_solution.y)
+    # println("w = ", w)
 end
 
 function write_output(line)
@@ -423,15 +426,15 @@ struct Combinations{T}
     count::Int64
     itrsize::Int64
     function Combinations(itr::Vector{T},count::Int) where T
-        new{T}(itr,Int64(count),length(itr))
+        new{T}(itr, Int64(count), length(itr))
     end
 end
 
 function iterate(c::Combinations,state::Int64=0)
-    if state>=length(c)
+    if state >= length(c)
         return nothing
     end
-    indices=digits(state,base=c.itrsize,pad=c.count)
+    indices = digits(state, base = c.itrsize, pad = c.count)
     [c.itr[i] for i in (indices .+1)],state+1
 end
 
@@ -449,7 +452,7 @@ MAX_IT = parse(Int64, ARGS[3])
 
 Mt = MersenneTwister(SEED)
 
-CONSTRAINED = false
+CONSTRAINED = true
 
 PERC = .5
 
@@ -507,11 +510,6 @@ C = M*(log(2*M) - 1)
 # (k_i k_j)/2M constant matrix for the DC-SBM
 # Q = (data.degree * transpose(data.degree))/(2*M)
 
-ground = Solution(data, copy(label))
-w_ground = get_omega_DCSBM(ground.m, ground.kappa)
-
-run(MAX_IT)
-
 # perm = collect(Combinations([1,2], n))
 
 # for x in perm
@@ -520,7 +518,13 @@ run(MAX_IT)
 #     println(x, ll)
 # end
 
-# ground_truth = Solution(data, copy(label))
-# omega = get_omega_DCSBM(ground_truth.m, ground_truth.kappa)
-# [ println("w(", i, "): ", omega[i,:]) for i = 1:data.k ]
-# println("ll = ", ll_DCSBM(data, ground_truth.m, ground_truth.kappa))
+ground = Solution(data, copy(label))
+w_ground = get_omega_DCSBM(ground.m, ground.kappa)
+
+# modu_y = [4, 4, 1, 2, 3, 1, 1, 2, 2, 3, 1, 3, 1, 1, 2, 4, 1, 3, 3, 4, 2, 1, 2, 4, 2, 4, 4, 4, 3, 3, 4, 2, 1, 2, 2, 4, 2, 4, 4, 4, 3, 4, 4, 3, 1, 1, 3, 2, 1, 2, 1, 3, 1, 4, 1, 2, 2, 1, 2, 4, 1, 3, 1, 3, 2, 3, 2, 3, 3, 4, 1, 1, 1, 1, 4, 4, 1, 4, 1, 3, 3, 1, 2, 1, 4, 1, 1, 1, 1, 2, 3, 1, 3, 1, 1, 1, 1, 2, 1, 3]
+# modu = Solution(data, modu_y)
+# w_modu = get_omega_DCSBM(modu.m, modu.kappa)
+# println(modu.ll)
+# println(w_modu)
+
+run(MAX_IT)

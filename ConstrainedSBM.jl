@@ -9,6 +9,8 @@ using Discreet
 using StatsBase
 using Clustering
 using CSV
+using Metis
+using SparseArrays
 
 import Base.iterate,Base.length
 
@@ -32,12 +34,12 @@ function Solution(data, y)
         z[i, y[i]] = 1
     end
 
-    # q = [ sum(z[:,r]) for r = 1:data.k ]
+    omega = get_omega_DCSBM(m, kappa)
 
-    if is_assortative(m, kappa)
+    if is_assortative(omega)
         ll = ll_DCSBM(data, m, kappa)
     else
-        ll = solve_DCSBM(data, m, kappa)
+        ll = solve_DCSBM(data, m, kappa, omega)
     end
     return Solution(ll, data, y, z, m, kappa)
 end
@@ -153,13 +155,23 @@ function add_feasibility_constraints(problem, w, k)
     end
 end
 
-function add_strong_constraints(problem, w, k)
-    for a = 1:k
-        for r = 1:k
-            for s = (r+1):k
-                # w[a,a] > w[r,s] for all a, for all r,s; r != s
-                problem.constraints += [ w[a,a] >= (w[r,s] + Tol) ]
-            end
+# function add_strong_constraints(problem, w, k)
+#     for a = 1:k
+#         for r = 1:k
+#             for s = (r+1):k
+#                 problem.constraints += [ w[a,a] >= (w[r,s] + Tol) ]
+#             end
+#         end
+#     end
+# end
+
+function add_strong_constraints(problem, w, lambda, k)
+    for q = 1:k
+        problem.constraints += [ w[q,q] >= (lambda + Tol) ]
+    end
+    for r = 1:k
+        for s = (r+1):k
+            problem.constraints += [ w[r,s] <= (lambda - Tol) ]
         end
     end
 end
@@ -175,23 +187,27 @@ function add_weak_constraints(problem, w, k)
     end
 end
 
-function solve_DCSBM(data, m, kappa_)
+function solve_DCSBM(data, m, kappa_, omega)
     k = data.k
-    kap = zeros(Float64, k, k)
+    T = zeros(Float64, k, k)
     
     for r = 1:k
         for s = r:k
-            kap[r,s] = (kappa_[r]*kappa_[s])/(2*M)
-            kap[s,r] = kap[r,s]
+            T[r,s] = (kappa_[r]*kappa_[s])/(2*M)
+            T[s,r] = T[r,s]
         end
     end
 
     # SBM parameters
     w = Variable(k, k)
+    w.value = omega
+
+    # Threshold variable
+    lambda = Variable()
 
     # Objective
-    f  = 0.5*sum( ( m[r,r]*log(w[r,r]) - w[r,r]*kap[r,r] ) for r=1:k )
-    f += sum( ( m[r,s]*log(w[r,s]) - w[r,s]*kap[r,s] ) for r=1:k for s=(r+1):k )
+    f  = 0.5*sum( ( m[r,r]*log(w[r,r]) - w[r,r]*T[r,r] ) for r=1:k )
+    f += sum( ( m[r,s]*log(w[r,s]) - w[r,s]*T[r,s] ) for r=1:k for s=(r+1):k )
 
     problem = maximize(f)
 
@@ -199,7 +215,7 @@ function solve_DCSBM(data, m, kappa_)
     add_feasibility_constraints(problem, w, k)
 
     # Add model constraints
-    add_strong_constraints(problem, w, k)
+    add_strong_constraints(problem, w, lambda, k)
 
     # Solve the constrained convex problem
     solve!(problem, ECOSSolver(verbose = false))
@@ -238,7 +254,8 @@ function eval_relocate(sol, i, t)
     sbm_cost = ll_DCSBM(sol.data, m_, kappa_)
 
     if sbm_cost < sol.ll
-        if is_assortative(m_, kappa_)
+        omega = get_omega_DCSBM(m_, kappa_)
+        if is_assortative(omega)
             # update likelihood
             sol.ll = sbm_cost
             # update parameters
@@ -249,7 +266,7 @@ function eval_relocate(sol, i, t)
             sol.y[i] = t
             sol.kappa = copy(kappa_)
         else
-            sbm_cost = solve_DCSBM(sol.data, m_, kappa_)
+            sbm_cost = solve_DCSBM(sol.data, m_, kappa_, omega)
             if sbm_cost < (sol.ll + Tol)
                 # update likelihood
                 sol.ll = sbm_cost
@@ -277,25 +294,22 @@ function get_omega_DCSBM(m, kappa)
     return w
 end
 
-function is_assortative(m, kappa)
+function is_assortative(w)
     if CONSTRAINED
-        return is_strongly_assortative(m, kappa)
-        # return is_relaxed_assortative(m, kappa)
+        return is_strongly_assortative(w)
     end
     return true
 end
 
-function is_strongly_assortative(m, kappa)
-    w = get_omega_DCSBM(m, kappa)
+function is_strongly_assortative(w)
     if minimum(diag(w)) > maximum(w - Diagonal(w))
         return true
     end
     return false
 end
 
-function is_weakly_assortative(m, kappa)
-    k = length(kappa)
-    w = get_omega_DCSBM(m, kappa)
+function is_weakly_assortative(w)
+    k = size(w)[1]
     for r = 1:k
         for s = 1:k
             if r != s && (w[r,r] <= w[r,s])
@@ -306,9 +320,8 @@ function is_weakly_assortative(m, kappa)
     return true
 end
 
-function is_relaxed_assortative(m, kappa)
-    k = length(kappa)
-    w = get_omega_DCSBM(m, kappa)
+function is_relaxed_assortative(w)
+    k = size(w)[1]
     count = 0
     for r = 1:k
         arr = findall(w[r, :] .== maximum(w[r, :]))
@@ -355,8 +368,26 @@ function initial_assignment(data)
     for i = 1:data.n
         y[ rdm_order[i] ] = ceil(data.k*i/data.n)
     end
+    # y = vec(Metis.partition(sparse(data.G), data.k))
     return y
 end
+
+# function initial_assignment(data)
+#     best_ll = Inf
+#     best_y =  zeros(Int, data.n)
+#     for it = 1:100
+#         rdm_order = randperm(Mt, data.n)
+#         y = zeros(Int, data.n)
+#         for i = 1:data.n
+#             y[ rdm_order[i] ] = ceil(data.k*i/data.n)
+#         end
+#         sol = Solution(data, y)
+#         if sol.ll < best_ll
+#             best_y = y
+#         end
+#     end
+#     return best_y
+# end
 
 function run(max_it)
     # best_nmi = 0.0
@@ -411,8 +442,8 @@ function run(max_it)
         write_output(line)
     end
     # w = get_omega_DCSBM(best_solution.m, best_solution.kappa)
-    # println(best_solution.ll, " ", best_solution.y)
     # println("w = ", w)
+    # println(best_solution.ll, " ", best_solution.y)
 end
 
 function write_output(line)
@@ -451,8 +482,6 @@ SEED = parse(Int64, ARGS[2])
 MAX_IT = parse(Int64, ARGS[3])
 
 Mt = MersenneTwister(SEED)
-
-CONSTRAINED = true
 
 PERC = .5
 
@@ -507,6 +536,8 @@ data = Data(n, 2, k, G)
 # SBM constant
 C = M*(log(2*M) - 1)
 
+# println("avg degree = ", (2*M)/data.n)
+
 # (k_i k_j)/2M constant matrix for the DC-SBM
 # Q = (data.degree * transpose(data.degree))/(2*M)
 
@@ -518,13 +549,9 @@ C = M*(log(2*M) - 1)
 #     println(x, ll)
 # end
 
+CONSTRAINED = true
+
 ground = Solution(data, copy(label))
 w_ground = get_omega_DCSBM(ground.m, ground.kappa)
-
-# modu_y = [4, 4, 1, 2, 3, 1, 1, 2, 2, 3, 1, 3, 1, 1, 2, 4, 1, 3, 3, 4, 2, 1, 2, 4, 2, 4, 4, 4, 3, 3, 4, 2, 1, 2, 2, 4, 2, 4, 4, 4, 3, 4, 4, 3, 1, 1, 3, 2, 1, 2, 1, 3, 1, 4, 1, 2, 2, 1, 2, 4, 1, 3, 1, 3, 2, 3, 2, 3, 3, 4, 1, 1, 1, 1, 4, 4, 1, 4, 1, 3, 3, 1, 2, 1, 4, 1, 1, 1, 1, 2, 3, 1, 3, 1, 1, 1, 1, 2, 1, 3]
-# modu = Solution(data, modu_y)
-# w_modu = get_omega_DCSBM(modu.m, modu.kappa)
-# println(modu.ll)
-# println(w_modu)
 
 run(MAX_IT)

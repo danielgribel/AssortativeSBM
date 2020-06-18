@@ -16,6 +16,20 @@ import Base.iterate,Base.length
 
 include("Data.jl")
 
+INSTANCE = ARGS[1]
+SEED = parse(Int64, ARGS[2])
+MAX_IT = parse(Int64, ARGS[3])
+
+# Tolerance epsilon
+const Tol = 1e-4
+
+# Constrained-problem flag
+const CONSTRAINED = true
+
+const OUTPUT_FILE = "out/" * INSTANCE * "-" * string(SEED) * ".txt"
+
+const Mt = MersenneTwister(SEED)
+
 mutable struct Solution
     # Log-likelihood value
     ll::Float64
@@ -48,13 +62,13 @@ function Solution(data, y)
     kappa = compute_kappa(data, y)
     
     # Calculate SBM probability matrix
-    omega = get_omega_DCSBM(m, kappa)
+    w = get_omega_DCSBM(m, kappa, data)
 
     # Check assortativity conditions and calculate the log-likelihood
-    if is_assortative(omega)
+    if is_assortative(w)
         ll = ll_DCSBM(data, m, kappa)
     else
-        ll = solve_DCSBM(data, m, kappa, omega)
+        ll = solve_DCSBM(data, m, kappa, w)
     end
 
     # Create solution
@@ -88,7 +102,7 @@ function ll_SBM(data, m, q)
     ll = 0.
     [ ll -= .5 * (m[r, r] > 0) * m[r, r] * log(max(1e-10, m[r, r]/(q[r] * q[r]))) for r = 1:k ]
     [ ll -= (m[r, s] > 0) * m[r, s] * log(max(1e-10, m[r, s]/(q[r] * q[s]))) for r = 1:k for s = (r+1):k ]
-    return ll - C
+    return ll - data.C
 end
 
 # DC-SBM log-likelihood computation
@@ -97,7 +111,7 @@ function ll_DCSBM(data, m, kap)
     ll = 0.
     [ ll -= .5 * (m[r, r] > 0) * m[r, r] * log(max(1e-10, m[r, r]/(kap[r] * kap[r]))) for r = 1:k ]
     [ ll -= (m[r, s] > 0) * m[r, s] * log(max(1e-10, m[r, s]/(kap[r] * kap[s]))) for r = 1:k for s = (r+1):k ]
-    return ll - C
+    return ll - data.C
 end
 
 function solve_SBM(data, m, q, omega)
@@ -114,6 +128,7 @@ function solve_SBM(data, m, q, omega)
     f  = 0.5*sum( ( m[r, r]*log(w[r, r]) - q[r]*q[r]*w[r, r] ) for r = 1:k )
     f += sum( ( m[r, s]*log(w[r, s]) - q[r]*q[s]*w[r, s] ) for r = 1:k for s = (r+1):k )
 
+    # Define a maximization problem
     problem = maximize(f)
 
     # Add feasibility constraints: w[r, s] > 0 and w[r, s] == w[s, r]
@@ -136,7 +151,7 @@ function solve_DCSBM(data, m, kappa_, omega)
     T = zeros(Float64, k, k)
 
     # Degrees term
-    [ T[r,s] = (kappa_[r]*kappa_[s])/(2*M) for r = 1:k for s = r:k ]
+    [ T[r,s] = (kappa_[r]*kappa_[s])/(2*data.M) for r = 1:k for s = r:k ]
     [ T[s,r] = T[r,s] for r = 1:k for s = (r+1):k ]
     
     # SBM parameters
@@ -147,9 +162,10 @@ function solve_DCSBM(data, m, kappa_, omega)
     lambda = Variable()
 
     # Objective function
-    f  = 0.5*sum( ( m[r,r]*log(w[r,r]) - w[r,r]*T[r,r] ) for r = 1:k )
-    f += sum( ( m[r,s]*log(w[r,s]) - w[r,s]*T[r,s] ) for r = 1:k for s = (r+1):k )
+    f  = 0.5*sum( ( m[r, r]*log(w[r, r]) - w[r, r]*T[r, r] ) for r = 1:k )
+    f += sum( ( m[r, s]*log(w[r, s]) - w[r, s]*T[r, s] ) for r = 1:k for s = (r+1):k )
 
+    # Define a maximization problem
     problem = maximize(f)
 
     # Add feasibility constraints: w[r,s] > 0 and w[r,s] == w[s,r]
@@ -219,7 +235,7 @@ end
 # Check assortativity conditions
 function is_assortative(w)
     if CONSTRAINED
-        return is_strongly_assortative(w)
+        return is_weakly_assortative(w)
     end
     return true
 end
@@ -250,7 +266,7 @@ function eval_relocate(sol, p, tgt)
     sbm_cost = ll_DCSBM(sol.data, m_, kappa_)
 
     if sbm_cost < sol.ll
-        omega = get_omega_DCSBM(m_, kappa_)
+        omega = get_omega_DCSBM(m_, kappa_, sol.data)
         if is_assortative(omega)
             update_ll(sol, sbm_cost)
             update_param(sol, m_, kappa_)
@@ -292,9 +308,9 @@ function get_omega_SBM(m, q)
 end
 
 # Calculate maximum-likelihood of \omega in the DC-SBM model, given z
-function get_omega_DCSBM(m, kappa)
+function get_omega_DCSBM(m, kappa, data)
     k = length(kappa)
-    w = [ 2.0*M*(m[r, s])/(kappa[r] * kappa[s]) for r = 1:k, s = 1:k ]
+    w = [ 2.0*data.M*(m[r, s])/(kappa[r] * kappa[s]) for r = 1:k, s = 1:k ]
     return w
 end
 
@@ -334,7 +350,7 @@ function initial_assignment(data)
     return y
 end
 
-function run(max_it)
+function run(max_it, data, label)
     best_ll = Inf
     best_solution = nothing
 
@@ -345,14 +361,8 @@ function run(max_it)
         # Create the initial solution
         sol = Solution(data, y)
         
-        # Start CPU time measurement
-        t1 = time_ns()
-        
         # Apply the local search
-        localsearch(sol)
-        
-        # Finish CPU time measurement
-        elapsed_time = (time_ns() - t1)/1.0e9
+        elapsed_time = @elapsed localsearch(sol)
         
         # Calculate the NMI
         nmi = mutual_information(sol.y, label; normalize = true)
@@ -361,7 +371,7 @@ function run(max_it)
         crand = randindex(sol.y, label)[1]
 
         # Obtain \omega values
-        w = get_omega_DCSBM(sol.m, sol.kappa)
+        w = get_omega_DCSBM(sol.m, sol.kappa, data)
 
         # Check if the current solution is better than the best solution
         if sol.ll < best_ll
@@ -419,68 +429,42 @@ function length(c::Combinations)
 end
 
 ###### MAIN
+function main(INSTANCE, MAX_IT)
+    
+    EDGES_FILE = "data/" * INSTANCE * ".link"
+    LABEL_FILE = "data/" * INSTANCE * ".label"
+    
+    io = open(OUTPUT_FILE, "w")
+    close(io)
 
-INSTANCE = ARGS[1]
+    label = Int[]
 
-SEED = parse(Int64, ARGS[2])
-
-MAX_IT = parse(Int64, ARGS[3])
-
-Mt = MersenneTwister(SEED)
-
-EDGES_FILE = "data/" * INSTANCE * ".link"
-LABEL_FILE = "data/" * INSTANCE * ".label"
-OUTPUT_FILE = "out/" * INSTANCE * "-" * string(SEED) * ".txt"
-
-io = open(OUTPUT_FILE, "w")
-close(io)
-
-# tolerance epsilon
-Tol = 1e-4
-
-label = Int[]
-
-open(LABEL_FILE) do file
-    [ push!(label, parse(Int, ln)) for ln in eachline(file) ]
-end
-
-# Number of nodes
-n = length(label)
-
-# Number of clusters
-k = length(unique(collect(label)))
-
-# Create a graph instance
-G = SimpleWeightedGraph(n)
-
-# Load the dataset
-df_edges = CSV.read(EDGES_FILE; header = false)
-
-# Matrix of edges
-E = convert(Matrix, df_edges)
-
-global M = 0
-for j = 1:size(E)[1]
-    global M
-    M += E[j, 3]
-    if E[j, 1] != E[j, 2]
-        M += E[j, 3]
+    open(LABEL_FILE) do file
+        [ push!(label, parse(Int, ln)) for ln in eachline(file) ]
     end
-    add_edge!(G, E[j, 1], E[j, 2], E[j, 3])
+
+    # Number of nodes
+    n = length(label)
+
+    # Number of communities
+    k = length(unique(collect(label)))
+
+    # Create a graph instance
+    G = SimpleWeightedGraph(n)
+
+    # Load the dataset
+    df_edges = CSV.read(EDGES_FILE; header = false)
+
+    # Matrix of edges
+    E = convert(Matrix, df_edges)
+    
+    # Add edges to the graph
+    [ add_edge!(G, E[j, 1], E[j, 2], E[j, 3]) for j = 1:size(E)[1] ]
+
+    # Create a data instance
+    data = Data(n, k, G)
+    
+    run(MAX_IT, data, label)
 end
 
-# Total number of edges
-M = .5*M
-
-# Create a data instance
-data = Data(n, 2, k, G)
-
-# SBM constant
-C = M*(log(2*M) - 1)
-
-CONSTRAINED = true
-
-truth = Solution(data, label)
-w_truth = get_omega_DCSBM(truth.m, truth.kappa)
-
-run(MAX_IT)
+main(INSTANCE, MAX_IT)

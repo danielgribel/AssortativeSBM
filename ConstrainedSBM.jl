@@ -1,5 +1,4 @@
 using Convex
-# using SCS
 using ECOS
 using Random
 using LinearAlgebra
@@ -8,27 +7,12 @@ using SimpleWeightedGraphs
 using Discreet
 using StatsBase
 using Clustering
-using CSV
-using Metis
-using SparseArrays
-
-import Base.iterate,Base.length
+using DelimitedFiles
 
 include("Data.jl")
 
-INSTANCE = ARGS[1]
-SEED = parse(Int64, ARGS[2])
-MAX_IT = parse(Int64, ARGS[3])
-
 # Tolerance epsilon
 const Tol = 1e-4
-
-# Constrained-problem flag
-const CONSTRAINED = true
-
-const OUTPUT_FILE = "out/" * INSTANCE * "-" * string(SEED) * ".txt"
-
-const Mt = MersenneTwister(SEED)
 
 mutable struct Solution
     # Log-likelihood value
@@ -234,6 +218,8 @@ end
 
 # Check assortativity conditions
 function is_assortative(w)
+    # Constrained-problem flag
+    CONSTRAINED = true
     if CONSTRAINED
         return is_weakly_assortative(w)
     end
@@ -314,7 +300,7 @@ function get_omega_DCSBM(m, kappa, data)
     return w
 end
 
-function localsearch(sol)
+function localsearch(sol, Mt)
     prev_ll = Inf
     curr_ll = sol.ll
     it_changed = true
@@ -339,7 +325,7 @@ function localsearch(sol)
     end
 end
 
-function initial_assignment(data)
+function initial_assignment(data, Mt)
     # Random permutation
     rdm_order = randperm(Mt, data.n)
 
@@ -350,19 +336,19 @@ function initial_assignment(data)
     return y
 end
 
-function run(max_it, data, label)
+function run(max_it, data, label, Mt)
     best_ll = Inf
     best_solution = nothing
 
     for i = 1:max_it
         # Create the initial assignment
-        y = initial_assignment(data)
+        y = initial_assignment(data, Mt)
 
         # Create the initial solution
         sol = Solution(data, y)
         
         # Apply the local search
-        elapsed_time = @elapsed localsearch(sol)
+        elapsed_time = @elapsed localsearch(sol, Mt)
         
         # Calculate the NMI
         nmi = mutual_information(sol.y, label; normalize = true)
@@ -387,7 +373,7 @@ function run(max_it, data, label)
             end
         end
 
-        line = INSTANCE * " "
+        line = data.instance * " "
         line *= string(SEED) * " "
         line *= string(data.k) * " "
         line *= string(sol.ll) * " "
@@ -397,43 +383,25 @@ function run(max_it, data, label)
         # [ line *= string(w[r,s]) * " " for r = 1:data.k for s = 1:data.k ]
         line *= "\n"
         print(line)
-        # write_output(line)
+        # write_output(line, OUTPUT_FILE)
     end
 end
 
-function write_output(line)
+function write_output(line,OUTPUT_FILE)
     io = open(OUTPUT_FILE, "a")
     write(io, line)
     close(io)
 end
 
-struct Combinations{T}
-    itr::Vector{T}
-    count::Int64
-    itrsize::Int64
-    function Combinations(itr::Vector{T},count::Int) where T
-        new{T}(itr, Int64(count), length(itr))
-    end
-end
-
-function iterate(c::Combinations,state::Int64=0)
-    if state >= length(c)
-        return nothing
-    end
-    indices = digits(state, base = c.itrsize, pad = c.count)
-    [c.itr[i] for i in (indices .+1)],state+1
-end
-
-function length(c::Combinations)
-    length(c.itr) ^ c.count
-end
-
 ###### MAIN
-function main(INSTANCE, MAX_IT)
+function main(INSTANCE, MAX_IT, SEED)
     
+    Mt = MersenneTwister(SEED)
+
     EDGES_FILE = "data/" * INSTANCE * ".link"
     LABEL_FILE = "data/" * INSTANCE * ".label"
-    
+    OUTPUT_FILE = "out/" * INSTANCE * "-" * string(SEED) * ".txt"
+
     io = open(OUTPUT_FILE, "w")
     close(io)
 
@@ -453,18 +421,21 @@ function main(INSTANCE, MAX_IT)
     G = SimpleWeightedGraph(n)
 
     # Load the dataset
-    df_edges = CSV.read(EDGES_FILE; header = false)
-
-    # Matrix of edges
-    E = convert(Matrix, df_edges)
+    E = readdlm(EDGES_FILE, Int)
     
     # Add edges to the graph
     [ add_edge!(G, E[j, 1], E[j, 2], E[j, 3]) for j = 1:size(E)[1] ]
 
     # Create a data instance
-    data = Data(n, k, G)
+    data = Data(n, k, G, INSTANCE)
     
-    run(MAX_IT, data, label)
+    run(MAX_IT, data, label, Mt)
 end
 
-main(INSTANCE, MAX_IT)
+INSTANCE = split(ARGS[1], " ")
+
+SEED = parse(Int64, ARGS[2])
+
+MAX_IT = parse(Int64, ARGS[3])
+
+[ main(data, MAX_IT, SEED) for data in INSTANCE ]

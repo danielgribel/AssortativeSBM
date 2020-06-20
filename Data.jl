@@ -1,12 +1,25 @@
 using SimpleWeightedGraphs
 
 struct Data
+    # Number of samples
     n::Int
+    
+    # Number of communities
     k::Int
+
+    # Graph
     G::SimpleWeightedGraph
+    
+    # Samples degree
     degree::Array{Int}
+    
+    # Number of edges
     M::Int
+
+    # SBM constant
     C::Float64
+
+    # Dataset name
     instance::String
 end
 

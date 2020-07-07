@@ -9,4 +9,4 @@ To run the AC-DC-SBM algorithm in Julia, try the following command:
 
 ### Example
 
-`> julia AC_DCSBM.jl 'A-4-05-02-101' 1234 100
+`> julia AC_DCSBM.jl 'A-4-05-02-101' 1234 100`

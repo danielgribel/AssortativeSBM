@@ -1,7 +1,12 @@
 require(mvtnorm)
 
-DATA_PREFIX = "C"
-PATH = "/home/dgribel/src/ConstrainedSBM/data/"
+DATA_PREFIX <- "F"
+
+# Get script directory
+PATH <- dirname(parent.frame(2)$ofile)
+
+# Add folder data/ to the current directory
+PATH <- paste(PATH, "data/", sep = "/")
 
 saveLabels <- function(label, omega) {
 	fileDesc <- paste(DATA_PREFIX, toString(m), toString(wIn), toString(wOut), sep = "-")
@@ -48,6 +53,7 @@ createNetwork <- function() {
 }
 
 seed <- 1
+
 set.seed(seed)
 
 # Number of samples

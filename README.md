@@ -1,4 +1,4 @@
-# Assortative-Constrained SBM
+# AC-DCSBM
 Assortative-Constrained Stochastic Block Models
 
 ## Run

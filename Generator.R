@@ -8,7 +8,7 @@ saveLabels <- function(label, omega) {
 	fileDesc <- gsub('\\.', '', fileDesc)
 	labelsFile <- paste(PATH, fileDesc, sep = "")
 	labelsFile <- paste(labelsFile, seed, sep = "-")
-    labelsFile <- paste(labelsFile, "label", sep = ".")
+	labelsFile <- paste(labelsFile, "label", sep = ".")
 	write.table(label, file = labelsFile, sep = " ", row.names = FALSE, col.names = FALSE)
 	cat('File created at:', labelsFile, '\n')
 }
@@ -17,30 +17,29 @@ saveEdges <- function(network, omega) {
 	fileDesc = paste(DATA_PREFIX, toString(m), toString(wIn), toString(wOut), sep = "-")
 	fileDesc <- gsub('\\.', '', fileDesc)
 	linksFile = paste(PATH, fileDesc, sep = "")
-    linksFile = paste(linksFile, seed, sep = "-")
+	linksFile = paste(linksFile, seed, sep = "-")
 	linksFile = paste(linksFile, "link", sep = ".")
 	write.table(network, file = linksFile, sep = " ", row.names = FALSE, col.names = FALSE)
 	cat('File created at:', linksFile, '\n')
 }
 
 createNetwork <- function() {
-	# Generate edges
 	edges <- data.frame()
 
 	# Sample A_ii from a Poisson distribution
 	for(i in 1:n) {
-		y = 2*rpois(1, 0.5*Omega[label[i], label[i]])
-		if(y > 0) {
-			edges <- rbind(edges, c(i, i, y))
+		a_ii = 2*rpois(1, 0.5*Omega[label[i], label[i]])
+		if(a_ii > 0) {
+			edges <- rbind(edges, c(i, i, a_ii))
 		}
 	}
 
 	# Sample A_ij, for i != j, from a Poisson distribution
 	for(i in 1:(n-1)) {
 		for(j in (i+1):n) {
-			y <- rpois(1, Omega[label[i], label[j]])
-			if(y > 0) {
-				edges <- rbind(edges, c(i, j, y))
+			a_ij <- rpois(1, Omega[label[i], label[j]])
+			if(a_ij > 0) {
+				edges <- rbind(edges, c(i, j, a_ij))
 			}
 		}
 	}
@@ -48,7 +47,7 @@ createNetwork <- function() {
 	saveEdges(edges, Omega)
 }
 
-seed <- 101
+seed <- 1
 set.seed(seed)
 
 # Number of samples

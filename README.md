@@ -26,11 +26,12 @@ To run the AC-DC-SBM algorithm in Julia, execute the following command:
 |-----|-----|-----|
 
 
-|      |      |      |     |      |
-| x_11 | x_12 | x_13 | ... | x_1d |
-| x_21 | x_22 | x_23 | ... | x_2d |
-| .... | .... | .... | ... | .... |
-| x_n1 | x_n2 | x_n3 | ... | x_nd |
+|     |     |     |
+|-----|-----|-----|
+| a_1 | b_1 | w_1 |
+| a_2 | b_2 | w_2 |
+| ... | ... | ... |
+| a_m | b_m | w_m |
 
 **Important**: Graph files must have the `.link` extension. Some graphs are provided within folder `/data` in this repository.
 

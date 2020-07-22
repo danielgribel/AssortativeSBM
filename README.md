@@ -25,7 +25,8 @@ To run the AC-DC-SBM algorithm in Julia, execute the following command:
 | a_m | b_m | w_m |
 |-----|-----|-----|
 
-|------|------|------|-----|------|
+
+|      |      |      |     |      |
 | x_11 | x_12 | x_13 | ... | x_1d |
 | x_21 | x_22 | x_23 | ... | x_2d |
 | .... | .... | .... | ... | .... |

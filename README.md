@@ -25,6 +25,11 @@ To run the AC-DC-SBM algorithm in Julia, execute the following command:
 | a_m | b_m | w_m |
 |-----|-----|-----|
 
+| x_11 | x_12 | x_13 | ... | x_1d |
+| x_21 | x_22 | x_23 | ... | x_2d |
+| .... | .... | .... | ... | .... |
+| x_n1 | x_n2 | x_n3 | ... | x_nd |
+
 **Important**: Graph files must have the `.link` extension. Some graphs are provided within folder `/data` in this repository.
 
 **Label file.** The label file contains the ground-truth community of each sample of the dataset, and is a N-row file, where N is the number of samples. Each line presents the label of the i-th sample:

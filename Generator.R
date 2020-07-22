@@ -1,6 +1,6 @@
 require(mvtnorm)
 
-DATA_PREFIX <- "F"
+DATA_PREFIX <- "A"
 
 # Get script directory
 PATH <- dirname(parent.frame(2)$ofile)

@@ -14,9 +14,6 @@ include("Data.jl")
 # Tolerance epsilon
 const Tol = 1e-4
 
-global ac_counter
-global tt_counter
-
 mutable struct Solution
     # Log-likelihood value
     ll::Float64
@@ -167,7 +164,7 @@ end
 # Check assortativity conditions
 function is_assortative(w)
     # Constrained-problem flag
-    CONSTRAINED = false
+    CONSTRAINED = true
     if CONSTRAINED
         return is_strongly_assortative(w)
     end
@@ -206,7 +203,6 @@ function eval_relocate(sol, p, tgt)
             update_param(sol, m_, kappa_)
             update_assignment(sol, p, src, tgt)
         else
-            global ac_counter += 1
             sbm_cost = solve_convex(sol.data, m_, kappa_, omega)
             if sbm_cost < sol.ll
                 update_ll(sol, sbm_cost)
@@ -214,7 +210,6 @@ function eval_relocate(sol, p, tgt)
                 update_assignment(sol, p, src, tgt)
             end
         end
-        global tt_counter += 1
     end
 end
 
@@ -273,11 +268,9 @@ end
 function initial_assignment(data, Mt)
     # Random permutation
     rdm_order = randperm(Mt, data.n)
-
     # Create equaly-sized clusters from the random permutation 
     y = zeros(Int, data.n)
-    [ y[ rdm_order[i] ] = ceil(data.k*i/data.n) for i = 1:data.n ]
-    
+    [ y[ rdm_order[i] ] = ceil(data.k*i/data.n) for i = 1:data.n ]    
     return y
 end
 
@@ -296,9 +289,6 @@ function run(max_it, data, label, Mt)
         # Create the initial solution
         sol = Solution(data, y)
 
-        global ac_counter = 0
-        global tt_counter = 0
-        
         # Apply the local search
         elapsed_time = @elapsed localsearch(sol, Mt)
 
@@ -332,12 +322,10 @@ function run(max_it, data, label, Mt)
         line *= string(nmi) * " "
         line *= string(count_csbm/data.k) * " "
         line *= string(elapsed_time) * " "
-        line *= string(ac_counter) * " "
-        line *= string(tt_counter) * " "
         # [ line *= string(w[r,s]) * " " for r = 1:data.k for s = 1:data.k ]
         line *= "\n"
         print(line)
-        write_output(line, OUTPUT_FILE)
+        # write_output(line, OUTPUT_FILE)
     end
 end
 

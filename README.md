@@ -15,10 +15,12 @@ To run the AC-DC-SBM algorithm in Julia, execute the following command:
 
 **Graph file.** The graph file is a 3-column and m-row file, where m is the number of edges in the graph. Each column is separated by a single space, and each line correponds to one connection in the graph. In a row, the first value is the number of the first sample, the second value is the number of the second sample, and the third value is the weigth of the edge:
 
+|-----|-----|-----|
 | a_1 | b_1 | w_1 |
 | a_2 | b_2 | w_2 |
 | ... | ... | ... |
 | a_m | b_m | w_m |
+|-----|-----|-----|
 
 **Important**: Graph files must have the `.link` extension. Some graphs are provided within folder `/data` in this repository.
 

@@ -13,7 +13,7 @@ To run the AC-DC-SBM algorithm in Julia, try the following command:
 
 ## Data format
 
-**Graph file.** The graph file is a 3-column and m-row file, where m is the number of edges in the graph. Each column is separated by a single space, and each line correponds to one edge in the graph. In a row, the first value is the number of the first sample, the second value is the number of the second sample, and the third value is the weigth of the edge:
+**Graph file.** The graph file is a 3-column and *m*-row file, where *m* is the number of edges in the graph. Each column is separated by a single space, and each line correponds to one edge in the graph. In a row, the first value is the number of the first sample, the second value is the number of the second sample, and the third value is the weigth of the edge:
 
 |     |     |     |
 |-----|-----|-----|
@@ -24,7 +24,7 @@ To run the AC-DC-SBM algorithm in Julia, try the following command:
 
 **Important**: Graph files must have the `.link` extension. Some graphs are provided within the folder `/data` in this repository.
 
-**Label file.** The label file contains the ground-truth community of each sample of the dataset, and is a N-row file, where N is the number of samples. Each line presents the label of the i-th sample:
+**Label file.** The label file contains the ground-truth community of each sample of the dataset, and is a *N*-row file, where *N* is the number of samples. Each line presents the label of the i-th sample:
 
 y<sub>1</sub>
 

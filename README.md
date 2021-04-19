@@ -1,7 +1,9 @@
 # AC-DC-SBM
 Assortative-Constrained Stochastic Block Models
 
+<p align="center">
 <img src="https://user-images.githubusercontent.com/4787247/115272480-72a49400-a10c-11eb-82a6-4d609f9a8e6d.png" width="300" height="300">
+</p>
 
 ## Run
 

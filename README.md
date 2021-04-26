@@ -2,7 +2,7 @@
 Assortative-Constrained Stochastic Block Models
 
 <p align="center">
-<img src="https://user-images.githubusercontent.com/4787247/116159611-92185f80-a6be-11eb-89ba-3cf9d60751af.png" width="500" height="250">
+<img src="https://user-images.githubusercontent.com/4787247/116159611-92185f80-a6be-11eb-89ba-3cf9d60751af.png" width="800" height="400">
 </p>
 
 ## Run
